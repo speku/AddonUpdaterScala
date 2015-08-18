@@ -6,17 +6,19 @@ import net.lingala.zip4j.exception.ZipException;
 import net.lingala.zip4j.core.ZipFile;
 import scala.actors._
 import Actor._
+import scala.util.{Try, Success, Failure}
 
 object Logic extends App {
   
   def getPath = {
     val regex = "(.*World of Warcraft).*".r
-    val e = sys.env.getOrElse("WorldOfWarcraft", null)
+    val e = sys.env.get("WorldOfWarcraft")
     e match {
-      case p => p match {
-        case regex(g) => if (new File(g).exists) g else sys.exit
+      case Some(p) => p match {
+        case regex(g) if (new File(g).exists) => g
         case _ => sys.exit
       }
+      case None => sys.exit
     }
   }
   
@@ -24,23 +26,23 @@ object Logic extends App {
     val reg = """## X-Curse-Project-ID: (.*)\W*""".r.unanchored
     lazy val reg2 = """## Title: (.*)\W*""".r.unanchored
     
-    def getId(f: File): String = {
-     try{
-       fromFile(f.toString + "/" + f.getName + ".toc").mkString match {
-        case reg(x) => x
-        case reg2(x) => x.replaceAll("\\s", "-")
-        case _ => null
+    def getId(f: File): Option[String] = {
+      Try(fromFile(f.toString + "/" + f.getName + ".toc").mkString) match {
+        case Success(p) => p match {
+          case reg(x) => Some(x)
+          case reg2(x) => Some(x.replaceAll("\\s", "-"))
+          case _ => None
+        }
+        case _ => None
       }
-     }catch {
-       case e: Exception => null
-     }
     }
     
     def mapFile(f: File) = {
-      val id = getId(f)
-      if (id != null) Set(id, f.getName) else Set(f.getName)
+      getId(f) match {
+        case Some(id) => Set(id, f.getName)
+        case None => Set(f.getName)
+      }
     }
-    
     new File(p + "/Interface/AddOns").listFiles.map(mapFile).flatten.toSet
   }
   
@@ -64,32 +66,33 @@ object Logic extends App {
      new ZipFile(y).extractAll(path + "/Interface/AddOns")
    }
    
-    def getURL(a: String, alrdy: Boolean = false) {
+   def getURL(a: String, alrdy: Boolean = false) {
      val url = base.format(a)
       try {fromURL(url).mkString match {
         case regex1(e) => {fromURL(url + e).mkString match {
           case regex2(g) if (isValid(g)) => download(g)
-          case _ =>}}
-        case _ =>
-      }} catch {
+          case _ =>}}}
+      } catch {
         case e: Exception if (!alrdy) => {fromURL(base2.format(a.replaceAll("\\s", "+"))).mkString match {
-          case regex4(g) if (isSimilar(a, g)) => getURL(g, true)
-          case _ =>
-        }}
-       }
-    }
+          case regex4(g) if (isSimilar(a, g) >= 0.5) => getURL(g, true)
+          case _ =>}}
+      }
+   }
     
     def isValid(url: String) = {
      val u = url.toLowerCase
      (u.contains("curse") || u.contains("wowace") || u.contains("wowinterface")) && (u.contains(".zip") || u.contains(".rar"))
     }
-    
-    def isSimilar(o: String, f: String) = {
-      val old = o.toLowerCase.replaceAll("\\W", "")
-      val found = f.toLowerCase.replaceAll("\\W", "")
-      found.contains(old) || old.contains(found) || (if (found.length >= 3 && old.length >= 3) found.contains(old.substring(0,3)) || 
-          found.contains(old.substring(old.length - 3)) else false) || (old.startsWith(found.substring(0,1)) && old.endsWith(found.substring(found.length - 1))) ||
-          (found.startsWith(old.substring(0,1)) && found.endsWith(old.substring(old.length - 1))) || old == found
+      
+    def isSimilar(s1: String, s2: String): Double = {
+      def strToPairs(s: String, acc: List[String]): List[String] = {
+        if (s.size < 2) acc
+        else strToPairs(s.drop(1),
+          if (s.take(2).contains(" ")) acc else acc ::: List(s.take(2)))
+      }
+      val lst1 = strToPairs(s1.trim.replaceAll("\\W", "").toUpperCase, List())
+      val lst2 = strToPairs(s2.trim.replaceAll("\\W", "").toUpperCase, List())
+      (2.0 * lst2.intersect(lst1).size) / (lst1.size + lst2.size)
     }
     
     def prepare() {
