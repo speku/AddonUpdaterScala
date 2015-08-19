@@ -55,28 +55,30 @@ object Logic extends App {
    lazy val regex4 = "(?s)<tr class=\"odd row-joined-to-next\">.*?addons/(.+?)/\"".r.unanchored
    
    def getName(url: String) = {
-     url match {
-       case regex3(g) => g
-     }
+     regex3.findFirstIn(url)
    }
    
    def download(url: String) {
      val y: File = new File(path + "/Interface/AddonUpdater/" + getName(url))
      (new URL(url) #> y).!
-     new ZipFile(y).extractAll(path + "/Interface/AddOns")
+     Try(new ZipFile(y).extractAll(path + "/Interface/AddOns"))
    }
    
    def getURL(a: String, alrdy: Boolean = false) {
      val url = base.format(a)
-      try {fromURL(url).mkString match {
-        case regex1(e) => {fromURL(url + e).mkString match {
-          case regex2(g) if (isValid(g)) => download(g)
-          case _ =>}}}
-      } catch {
-        case e: Exception if (!alrdy) => {fromURL(base2.format(a.replaceAll("\\s", "+"))).mkString match {
-          case regex4(g) if (isSimilar(a, g) >= 0.5) => getURL(g, true)
-          case _ =>}}
-      }
+      Try(fromURL(url).mkString) match {
+       case Success(b) => for {
+         m <- regex1.findFirstIn(b)
+         n <- Option(Try(fromURL(url + m).mkString) getOrElse None)
+         g <- regex2.findFirstIn(n.toString)
+         if isValid(g)
+       } yield download(g)
+       case Failure(b) if (!alrdy) => for {
+         s <- Option(Try(fromURL(base2.format(a.replaceAll("\\s", "+"))).mkString) getOrElse None)
+         g <- regex4.findFirstIn(s.toString)
+         if (isSimilar(a, g) >= 0.5)
+       } yield getURL(g, true)      
+     }
    }
     
     def isValid(url: String) = {
@@ -85,6 +87,7 @@ object Logic extends App {
     }
       
     def isSimilar(s1: String, s2: String): Double = {
+      println(s1, " ", s2)
       def strToPairs(s: String, acc: List[String]): List[String] = {
         if (s.size < 2) acc
         else strToPairs(s.drop(1),
