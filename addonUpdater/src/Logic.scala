@@ -11,11 +11,11 @@ import scala.util.{Try, Success, Failure}
 object Logic extends App {
   
   def getPath = {
-    val regex = "(.*World of Warcraft).*".r
-    val e = sys.env.get("WorldOfWarcraft")
-    e match {
+    val rx = "(.*World of Warcraft).*".r
+    val env = sys.env.get("WorldOfWarcraft")
+    env match {
       case Some(p) => p match {
-        case regex(g) if (new File(g).exists) => g
+        case rx(g) if (new File(g).exists) => g
         case _ => sys.exit
       }
       case None => sys.exit
@@ -23,14 +23,14 @@ object Logic extends App {
   }
   
   def getAddons(p: String): Set[String] = {
-    val reg = """## X-Curse-Project-ID: (.*)\W*""".r.unanchored
-    lazy val reg2 = """## Title: (.*)\W*""".r.unanchored
+    val rx1 = """## X-Curse-Project-ID: (.*)\W*""".r.unanchored
+    lazy val rx2 = """## Title: (.*)\W*""".r.unanchored
     
     def getId(f: File): Option[String] = {
       Try(fromFile(f.toString + "/" + f.getName + ".toc").mkString) match {
         case Success(p) => p match {
-          case reg(x) => Some(x)
-          case reg2(x) => Some(x.replaceAll("\\s", "-"))
+          case rx1(x) => Some(x)
+          case rx2(x) => Some(x.replaceAll("\\s", "-"))
           case _ => None
         }
         case _ => None
@@ -43,25 +43,26 @@ object Logic extends App {
         case None => Set(f.getName)
       }
     }
-    new File(p + "/Interface/AddOns").listFiles.map(mapFile).flatten.toSet
+    
+    new File(p + "/Interface/AddOns").listFiles.flatMap(mapFile).toSet
   }
   
-  def getURLdownloadUnzip(xs: Set[String], path: String) = {
+  def getURLdownloadUnzip(addons: Set[String], path: String) = {
    val base = "http://wow.curseforge.com/addons/%s/files/"
    lazy val base2 = "http://wow.curseforge.com/search/?search=%s"
-   val regex1 = "<td class=\"col-file\"><a href=\".*?/files/(.*?)\">".r.unanchored
-   val regex2 = "user-action user-action-download.*?href=\"(.*?)\">Download".r.unanchored
-   val regex3 = ".*/([^/]*zip)".r.unanchored
-   lazy val regex4 = "(?s)<tr class=\"odd row-joined-to-next\">.*?addons/(.+?)/\"".r.unanchored
+   val rx1 = "<td class=\"col-file\"><a href=\".*?/files/(.*?)\">".r.unanchored
+   val rx2 = "user-action user-action-download.*?href=\"(.*?)\">Download".r.unanchored
+   val rx3 = ".*/([^/]*zip)".r.unanchored
+   lazy val rx4 = "(?s)<tr class=\"odd row-joined-to-next\">.*?addons/(.+?)/\"".r.unanchored
    
-   def getName(url: String) = {
+   def fileName(url: String) = {
      url match {
-       case regex3(g) => g
+       case rx3(g) => g
      }
    }
    
    def download(url: String) {
-     val y: File = new File(path + "/Interface/AddonUpdater/" + getName(url))
+     val y: File = new File(path + "/Interface/AddonUpdater/" + fileName(url))
      (new URL(url) #> y).!
      new ZipFile(y).extractAll(path + "/Interface/AddOns")
    }
@@ -69,12 +70,12 @@ object Logic extends App {
    def getURL(a: String, alrdy: Boolean = false) {
      val url = base.format(a)
       try {fromURL(url).mkString match {
-        case regex1(e) => {fromURL(url + e).mkString match {
-          case regex2(g) if (isValid(g)) => download(g)
+        case rx1(e) => {fromURL(url + e).mkString match {
+          case rx2(g) if (isValid(g)) => download(g)
           case _ =>}}}
       } catch {
-        case e: Exception if (!alrdy) => {fromURL(base2.format(a.replaceAll("\\s", "+"))).mkString match {
-          case regex4(g) if (isSimilar(a, g) >= 0.5) => getURL(g, true)
+        case _ : Throwable if (!alrdy) => {fromURL(base2.format(a.replaceAll("\\s", "+"))).mkString match {
+          case rx4(g) if (isSimilar(a, g) >= 0.5) => getURL(g, true)
           case _ =>}}
       }
    }
@@ -105,7 +106,7 @@ object Logic extends App {
     }
     
     prepare
-    xs foreach (f => actor {self ! getURL(f)})
+    addons foreach (f => actor {self ! getURL(f)})
   }
   
   val path = getPath
